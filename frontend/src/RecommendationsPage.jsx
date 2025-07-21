@@ -1,168 +1,234 @@
+import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import {
+  auth,
+  db,
+  doc,
+  provider,
+  setDoc,
+  signInWithPopup,
+  signOut,
+} from "./firebase";
 
-export default function RecommendationsPage() {
   const location = useLocation();
   const { skills, recommendations } = location.state || {};
+  const [user, setUser] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("theme") === "dark";
+    }
+    return false;
+  });
+  // Dark mode effect
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [darkMode]);
 
-  // Support both single and multiple recommendations
-  const recs = recommendations?.recommendations || [];
+  // Listen for auth state changes
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((u) => {
+      setUser(u);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Render chart and save recommendations if logged in
+  useEffect(() => {
+    if (!recommendations) return;
+
+    const ctx = document.getElementById("careerChart");
+    if (ctx) {
+      new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: Object.keys(recommendations),
+          datasets: [
+            {
+              label: "Match Score",
+              data: Object.values(recommendations),
+              backgroundColor: "rgba(54, 162, 235, 0.6)",
+            },
+          ],
+        },
+        options: {
+          scales: {
+            y: { beginAtZero: true },
+          },
+        },
+      });
+    }
+
+    if (user) {
+      const saveData = async () => {
+        setSaving(true);
+        try {
+          const recId = Date.now();
+          await setDoc(
+            doc(db, "users", user.uid, "recommendations", recId.toString()),
+            {
+              skills,
+              recommendations,
+              createdAt: new Date().toISOString(),
+            }
+          );
+        } catch {
+          // Optionally handle error
+        }
+        setSaving(false);
+      };
+      saveData();
+    }
+  }, [recommendations, user, skills]);
+
+  const handleSignIn = async () => {
+    try {
+      await signInWithPopup(auth, provider);
+    } catch {
+      // Optionally handle error
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch {
+      // Optionally handle error
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-100 to-pink-100 py-8 px-2">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-purple-800 flex items-center gap-2">
-            <span role="img" aria-label="search">
-              🔍
-            </span>{" "}
-            Career Recommendations
-          </h1>
-          <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-semibold">
-            Download as PDF
-          </button>
+    <div className="p-6 text-center bg-white dark:bg-gray-900 min-h-screen transition-colors">
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <a href="/history" className="text-indigo-600 dark:text-indigo-300 underline hover:text-indigo-800">My History</a>
         </div>
-        <p className="text-gray-600 mb-4">
-          Based on your skills:{" "}
-          <span className="font-semibold text-purple-700">{skills}</span>
-        </p>
-        {recs.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-8 text-center text-gray-500">
-            No recommendations found.
-          </div>
-        ) : (
-          recs.map((rec, idx) => (
-            <div key={idx} className="bg-white rounded-xl shadow-lg p-6 mb-8">
-              <h2 className="text-xl font-bold text-gray-800 mb-2">
-                {rec.role}
-              </h2>
-              <p className="mb-1">
-                <span className="font-semibold">Salary:</span> {rec.salary}
-              </p>
-              {rec.companies && (
-                <p className="mb-1">
-                  <span className="font-semibold">Top Companies:</span>{" "}
-                  {rec.companies.join(", ")}
-                </p>
-              )}
-              <div className="flex gap-2 mb-2">
-                {rec.matchedSkills && (
-                  <span className="bg-green-100 text-green-700 px-2 py-1 rounded flex items-center gap-1 text-sm">
-                    <span role="img" aria-label="check">
-                      ✔️
-                    </span>{" "}
-                    Matched Skills:{" "}
-                    <span className="font-semibold">
-                      {rec.matchedSkills.join(", ")}
-                    </span>
-                  </span>
-                )}
-                {rec.unmatchedSkills && (
-                  <span className="bg-red-100 text-red-700 px-2 py-1 rounded flex items-center gap-1 text-sm">
-                    <span role="img" aria-label="cross">
-                      ❌
-                    </span>{" "}
-                    Unmatched Skills:{" "}
-                    <span className="font-semibold">
-                      {rec.unmatchedSkills.join(", ")}
-                    </span>
-                  </span>
-                )}
-              </div>
-              {rec.matchScore && (
-                <div className="mb-2">
-                  Match Score:{" "}
-                  <span className="font-semibold">{rec.matchScore}%</span>
-                </div>
-              )}
-              {rec.tools && (
-                <div className="mb-2">
-                  <span className="font-semibold">Tools:</span>{" "}
-                  {rec.tools.join(", ")}
-                </div>
-              )}
-              {rec.roadmap && (
-                <div className="mb-2 flex gap-4">
-                  <a href={rec.roadmap} className="text-blue-600 underline">
-                    Roadmap: <span className="font-semibold">View</span>
-                  </a>
-                </div>
-              )}
-              {rec.courses && (
-                <div className="mb-2 flex gap-4">
-                  <a href={rec.courses} className="text-blue-600 underline">
-                    Courses: <span className="font-semibold">Watch</span>
-                  </a>
-                </div>
-              )}
-              {rec.insight && (
-                <div className="bg-indigo-50 rounded p-4 mt-4">
-                  <h3 className="font-bold text-indigo-700 mb-1 flex items-center gap-1">
-                    <span role="img" aria-label="insight">
-                      💡
-                    </span>{" "}
-                    Career Insight
-                  </h3>
-                  <p className="mb-2 text-gray-700">
-                    <span className="font-semibold">Overview:</span>{" "}
-                    {rec.insight.overview}
-                  </p>
-                  {rec.insight.advantages && (
-                    <div className="mb-2">
-                      <span className="font-semibold text-green-700">
-                        Advantages:
-                      </span>
-                      <ul className="list-disc ml-6 text-gray-700">
-                        {rec.insight.advantages.map((adv, i) => (
-                          <li key={i}>{adv}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {rec.insight.challenges && (
-                    <div className="mb-2">
-                      <span className="font-semibold text-red-700">
-                        Challenges:
-                      </span>
-                      <ul className="list-disc ml-6 text-gray-700">
-                        {rec.insight.challenges.map((ch, i) => (
-                          <li key={i}>{ch}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {rec.insight.careerPath && (
-                    <div>
-                      <span className="font-semibold">Career Path:</span>{" "}
-                      {rec.insight.careerPath}
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* Skill Match Chart */}
-              {rec.matchScore && (
-                <div className="bg-white rounded-xl shadow-lg p-6 mt-6">
-                  <h2 className="text-lg font-bold text-gray-800 mb-4">
-                    Skill Match Comparison
-                  </h2>
-                  <div className="w-full h-64 flex items-end">
-                    <div
-                      className="bg-purple-400 w-1/2 rounded-t-lg mx-auto flex flex-col items-center justify-end"
-                      style={{ height: `${rec.matchScore}%` }}
-                    >
-                      <span className="text-purple-700 font-semibold">
-                        Match Score (%)
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-center mt-2 text-gray-600">
-                    {rec.role}
-                  </div>
-                </div>
-              )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setDarkMode((d) => !d)}
+            className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Toggle dark mode"
+          >
+            {darkMode ? "🌙 Dark" : "☀️ Light"}
+          </button>
+          {user ? (
+            <div>
+              <span className="mr-2">Hello, {user.displayName}</span>
+              <button
+                onClick={handleSignOut}
+                className="bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-3 py-1 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+              >
+                Sign Out
+              </button>
             </div>
-          ))
-        )}
+          ) : (
+            <button
+              onClick={handleSignIn}
+              className="bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600"
+            >
+              Sign in with Google
+            </button>
+          )}
+        </div>
       </div>
+      <h2 className="text-2xl font-bold text-indigo-600 dark:text-indigo-300 mb-4">
+        Career Recommendations
+      </h2>
+      <p className="mb-6 text-gray-700 dark:text-gray-200">
+        Based on your skills: <strong>{skills}</strong>
+      </p>
+
+      {recommendations ? (
+        <>
+          <div className="max-w-xl mx-auto">
+            <canvas id="careerChart"></canvas>
+            {user && (
+              <p className="mt-2 text-green-600 dark:text-green-400 text-sm">
+                {saving ? "Saving to your history..." : "Saved to your history!"}
+              </p>
+            )}
+          </div>
+          {/* Dynamic Career Roadmap Generator */}
+          <CareerRoadmap recommendations={recommendations} />
+        </>
+      ) : (
+        <p>Loading recommendations...</p>
+      )}
     </div>
   );
 }
+
+
+
+const ROADMAPS = {
+  'Data Scientist': {
+    timeline: [
+      { month: 'Month 1', skills: ['Python', 'Pandas', 'Numpy'], resources: [
+        { name: 'Python for Everybody (Coursera)', url: 'https://www.coursera.org/specializations/python' },
+        { name: 'Kaggle Python Course', url: 'https://www.kaggle.com/learn/python' },
+      ] },
+      { month: 'Month 2', skills: ['Data Visualization', 'Matplotlib', 'Seaborn'], resources: [
+        { name: 'Data Visualization with Python (Coursera)', url: 'https://www.coursera.org/learn/python-for-data-visualization' },
+      ] },
+      { month: 'Month 3', skills: ['Machine Learning Basics', 'scikit-learn'], resources: [
+        { name: 'Intro to ML (YouTube)', url: 'https://www.youtube.com/watch?v=Gv9_4yMHFhI' },
+      ] },
+    ]
+  },
+  'Frontend Developer': {
+    timeline: [
+      { month: 'Month 1', skills: ['HTML', 'CSS', 'JavaScript'], resources: [
+        { name: 'freeCodeCamp Responsive Web Design', url: 'https://www.freecodecamp.org/learn/' },
+      ] },
+      { month: 'Month 2', skills: ['React', 'Vite'], resources: [
+        { name: 'React Docs', url: 'https://react.dev/learn' },
+        { name: 'Vite Guide', url: 'https://vitejs.dev/guide/' },
+      ] },
+      { month: 'Month 3', skills: ['State Management', 'APIs'], resources: [
+        { name: 'Redux Essentials', url: 'https://redux.js.org/tutorials/essentials/part-1-overview-concepts' },
+      ] },
+    ]
+  },
+  // Add more careers as needed
+};
+
+function CareerRoadmap({ recommendations }) {
+  // Pick the top recommended career
+  const topCareer = Object.entries(recommendations)
+    .sort((a, b) => b[1] - a[1])[0]?.[0];
+  const roadmap = ROADMAPS[topCareer];
+  if (!topCareer || !roadmap) return null;
+  return (
+    <div className="mt-10 max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <h3 className="text-xl font-bold text-purple-700 dark:text-purple-300 mb-4">{topCareer} Roadmap (3 Months)</h3>
+      <ol className="space-y-6">
+        {roadmap.timeline.map((step, idx) => (
+          <li key={idx} className="border-l-4 border-indigo-400 pl-4">
+            <div className="font-semibold text-indigo-700 dark:text-indigo-300 mb-1">{step.month}</div>
+            <div className="mb-1">
+              <span className="font-semibold">Skills:</span> {step.skills.join(", ")}
+            </div>
+            <div>
+              <span className="font-semibold">Resources:</span>
+              <ul className="list-disc list-inside ml-4">
+                {step.resources.map((res) => (
+                  <li key={res.url}>
+                    <a href={res.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-300 underline">{res.name}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+export default RecommendationsPage;
